@@ -1,0 +1,368 @@
+#sourceCode
+#include <Stepper.h>
+#include<Servo.h>
+#include <IRremote.h>
+#include <IRremoteInt.h>
+#include<LiquidCrystal.h>
+unsigned int codedValue;  
+int RECV_PIN = 9;
+IRrecv irsensor(RECV_PIN);
+decode_results results;
+//please comment the below section if you want to drive the blind with another type of motor other than stepper
+int motoPin1= 11;
+int motoPin2= 10;
+int motoPin3= 8;
+int motoPin4 = 3;
+long motoSpeed = 50;//(rpm)
+int motoStep = 48;//Number of step per revolution NB: the used motor makes 5.625 degree per step
+Stepper moto(motoStep,motoPin1,motoPin2,motoPin3,motoPin4);
+int drive = 0; //creating a moto drive memory
+int openSlightlyToOpenFully = 12; //make 1/2 complete revolution
+int openSlightlyToCloseFully = -openSlightlyToOpenFully;//make 1/2 complete revolution
+int openSlightly = 12; //make 1/2 complete revolution
+int reverseOpenSlightly = -openSlightly; //make 1/2 complete revolution
+int openFully = 24; //make 1 complete revolution
+int closeFully = -openFully;//make 1 complete revolution
+int manualStep = 12;//make 1 complete revolution per press of remote control
+/*************************************************************************/
+LiquidCrystal lcd(12,13,4,5,6,7); //RS,E,D4,D5,D6,D7
+int lux,moist,temp;    //declaring a variable
+unsigned int Temp,tempf; 
+/**here are the remote codedValues in DEC**/
+const unsigned int codedValueAuto = 255;
+const unsigned int codedValueManual = 47175;
+const unsigned int manualIncrement = 53295;
+const unsigned int manualDecrement = 28815;
+const unsigned int manualOpen = 34935;
+const unsigned int manualClose = 2295;
+const unsigned int longPress = 65535;
+/**here are the parameters you can change the values to suite you**/
+/** >> Temperature boundary parameters << **/
+  int tempLB = 23;
+  int tempUB = 25;
+/** >> moist boundary parameters << **/
+  int moistLB = 25;
+  int moistUB = 45;
+/** >> lux boundary parameters << **/
+  int luxUB = 49;
+  int luxLB = 40; 
+//this method checks the temperature parameter
+int getTemperature()
+{
+  Temp = analogRead(A1);
+  temp = (Temp*500)/1023;
+  tempf = (temp*1.8)+32;
+  temp=map(temp,0,100,0,100);
+  Serial.print("Temp: ");
+  Serial.println(temp);
+  Serial.print("Tempf: ");
+  Serial.println(tempf);
+  return temp;
+}
+//this method checks the luminous  parameter
+int getLightBrightness()
+{
+  //lux values tends toward 100 as bright increases
+  //lux values tends toward 0 as darkness increases
+  lux = analogRead(A0);
+  lux = map(lux,0,1023,0,100);
+  Serial.print("lux :");
+  Serial.println(lux);
+  return lux;
+}
+//this method checks the moist parameter
+int checkMoisture()
+{
+  //moist value tends towards 100 as dryness increases
+  //moist value tends towards 0 as wetness increases
+  moist = analogRead(A2);
+  moist = map(moist,0,1023,100,0);//moist value tends towards 100 as wetness increases
+  Serial.print("moist :");
+  Serial.println(moist);
+  return moist;
+}
+//this method handles the welcome display when the system is switch ON
+void startUpDisplay()
+{
+  lcd.setCursor (2,0);
+  lcd.print("BLIND SYSTEM");
+  lcd.setCursor(5,1);
+  lcd.print("CONTROL");
+  delay(5000);
+  lcd.clear();
+  lcd.setCursor (2,0);
+  lcd.print("PROJECT BY:");
+  lcd.setCursor(1,1);
+  lcd.print("daniel-itunu");
+  delay(5000);
+  lcd.clear();
+}
+//this method handles the display of the parameters varibles on the lcd screen
+void parametersDisplay()
+{
+  //getLightBrightness();
+  lcd.setCursor (0,0);
+  lcd.print("lux:");
+  lcd.print(lux);
+  lcd.print("  ");
+
+  //checkMoisture();
+  lcd.setCursor (8,0);
+  lcd.print("Wet:");
+  lcd.print(moist);
+  lcd.print("  ");
+ 
+  
+  //getTemperature();
+  lcd.setCursor (0,1);
+  lcd.print("Temp:");
+  lcd.print(temp);
+  lcd.print("  ");
+  delay(1000);
+}
+  
+//this method gives the system its smartness
+void smartControl()
+{
+  getTemperature();
+  checkMoisture();
+  getLightBrightness();
+//CASE 1 is the case at which the blind close
+if(lux<luxLB && temp<tempLB && moist<moistLB || lux<luxLB && temp<tempLB && moist>moistUB || lux>luxUB && temp<tempLB && moist<moistLB || lux>luxUB && temp<tempLB && moist>moistUB)
+{
+ autoCloseFullyCase();
+}
+//CASE2 is the case at which the blind open
+if(lux<luxLB && temp>tempUB && moist<moistLB || lux>luxUB && temp>tempUB && moist<moistLB)
+{
+ autoOpenFullyCase();
+}
+//CASE3 is the case at which the blind open slightly
+if(lux<luxLB && temp>tempUB && moist>moistUB || lux>luxUB && temp>tempUB && moist>moistUB)
+{
+ autoOpenSlightlyCase();
+}
+    }
+//this method is created to read from the remote and decode the remote message
+void decodeRemote()
+{
+   if(irsensor.decode(&results))
+   {
+    Serial.print("Remote code ");
+    Serial.println(results.value, DEC);
+    codedValue = (results.value);
+    Serial.println(codedValue);
+    irsensor.resume(); // Receive the next value
+    delay(1000);
+  }
+}
+/*Manual control ...........................................................................................................................................................*/
+ void manualControlIncrement()
+ {
+    lcd.clear();//clear screen to show manual mode
+    lcd.setCursor(4,0);
+    lcd.print("MANUAL MODE");
+    lcd.setCursor(4,1);
+    lcd.print("SELECTED");
+    lcd.setCursor(13,1);
+    lcd.print("++");
+  moto.step(manualStep);//720 degree movement
+  Serial.print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>manualStep Increment: ");
+  Serial.println(manualStep);
+ //break out of the manualControlIncrement loop if any key not assigned to manual Increment is pressed
+ delay(1000);
+    codedValue=0;
+  }
+
+void manualControlDecrement()
+ {
+     lcd.clear();//clear screen to show manual mode
+    lcd.setCursor(4,0);
+    lcd.print("MANUAL MODE");
+    lcd.setCursor(4,1);
+    lcd.print("SELECTED");
+    lcd.setCursor(13,1);
+    lcd.print("--");
+  moto.step(-manualStep);//720 degree movement
+  Serial.print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>manualStep Increment: ");
+  Serial.println(manualStep);
+  delay(1000);
+   codedValue=0;
+  }
+/**************************************************************************************************************************************Manual control line ends here*****/
+void autoCloseFullyCase(){
+ // CASE1 auto close fully case
+ if(drive == closeFully){
+  lcd.clear();
+   lcd.setCursor (10,1);
+  lcd.print("CASE1A");
+ parametersDisplay();
+  //do nothing
+  drive = closeFully; // update drive memory
+ }
+ if(drive == openFully){
+  lcd.clear();
+        lcd.setCursor (10,1);
+  lcd.print("CASE1B");
+ parametersDisplay();
+   drive = closeFully; // update drive memory
+  moto.step(closeFully);
+ }
+  if(drive==openSlightly){
+    lcd.clear();
+  lcd.setCursor (10,1);
+  lcd.print("CASE1C");
+ parametersDisplay();
+    drive = closeFully;//update drive memory
+    moto.step(openSlightlyToCloseFully);
+ }
+}
+void autoOpenFullyCase(){
+  //CASE2 auto open fully case
+  if(drive==openFully){
+    lcd.clear();
+      lcd.setCursor (10,1);
+  lcd.print("CASE2A");
+ parametersDisplay();  
+    //do nothing
+    drive=openFully;//update drive memory
+  }
+  if(drive == closeFully){
+    lcd.clear();
+      lcd.setCursor (10,1);
+  lcd.print("CASE2B");
+ parametersDisplay();
+ drive=openFully;//update drive memory
+    moto.step(openFully);   
+  }
+  if(drive==openSlightly){
+    lcd.clear();
+  lcd.setCursor (10,1);
+  lcd.print("CASE2C");
+ parametersDisplay();
+     drive=openFully;//update drive memory
+     moto.step(openSlightlyToOpenFully);
+  }
+}
+void autoOpenSlightlyCase(){
+  //CASE3 auto open slightly case 
+    if(drive==openSlightly){
+    //do nothing
+    lcd.clear();
+          lcd.setCursor (10,1);
+  lcd.print("CASE3A");
+ parametersDisplay();
+    drive = openSlightly;//update drive memory
+  }
+  if(drive==openFully){
+    lcd.clear();
+      lcd.setCursor (10,1);
+  lcd.print("CASE3B");
+ parametersDisplay();
+   drive = openSlightly;
+    moto.step(reverseOpenSlightly);//smart stepper control
+  }
+ 
+    if(drive==closeFully){
+    lcd.clear();
+  lcd.setCursor (10,1);
+  lcd.print("CASE3C");
+ parametersDisplay();
+  drive = openSlightly; //update drive memory
+  moto.step(openSlightly);//smart stepper control   
+  }
+}
+void setup()
+{
+moto.setSpeed(motoSpeed);
+irsensor.enableIRIn(); // Start the receiver
+lcd.begin(16,2);//initialize lcd @(column,row)
+Serial.begin(9600);
+startUpDisplay();
+delay(1000);
+moto.step(closeFully);// defaultly close the blind at start up
+  lcd.clear();//clear to redisplay
+  Serial.println("please select mode");
+  lcd.setCursor(1,0);
+  lcd.print("SELECT MODE");
+drive = closeFully; //update the drive memory
+ }
+void loop() 
+{
+  Serial.println("please select mode");
+  decodeRemote();
+  if(codedValue == codedValueAuto)
+  {
+  Serial.println("automatic Mode.................");
+    lcd.clear();//clear screen to show automatic mode
+   lcd.setCursor(4,0);
+    lcd.print("AUTO Mode");
+    lcd.setCursor(4,1);
+    lcd.print("SELECTED");
+    delay(1000);
+    lcd.clear();//clear in order to be able to show the parameter displays correctly
+  while(codedValue == codedValueAuto || codedValue == longPress){
+   Serial.println("automatic Mode.................");
+   smartControl();
+   decodeRemote();
+   delay(100); 
+  }
+    }
+   //Check for manual mode selection
+  if(codedValue== codedValueManual){
+    lcd.clear();//clear screen to show manual mode
+    lcd.setCursor(4,0);
+    lcd.print("MANUAL MODE");
+    lcd.setCursor(4,1);
+    lcd.print("SELECTED");
+    decodeRemote();
+    //remain in manual mode if any of the key pressed is assigned to manual
+  while(codedValue== codedValueManual || codedValue==manualIncrement || codedValue==manualDecrement || codedValue == manualOpen || codedValue== manualClose || codedValue==0 || codedValue == longPress)
+  {
+   Serial.println("Manual mode ....................");
+    //enter manual control increment subroutine
+    if(codedValue==manualIncrement)
+    {
+    manualControlIncrement(); 
+    }
+    else{
+      lcd.clear();//clear screen to show manual mode
+    lcd.setCursor(4,0);
+    lcd.print("MANUAL MODE");
+    lcd.setCursor(4,1);
+    lcd.print("SELECTED");
+    }
+    //enter manual control decrement subroutine
+    if(codedValue==manualDecrement)
+    {
+    manualControlDecrement(); 
+    }
+    else{
+      lcd.clear();//clear screen to show manual mode
+    lcd.setCursor(4,0);
+    lcd.print("MANUAL MODE");
+    lcd.setCursor(4,1);
+    lcd.print("SELECTED");
+    }
+
+    decodeRemote();
+          }
+    }
+    //check for invalid key press
+    while(codedValue!= codedValueAuto && codedValue!= codedValueManual && codedValue!=0 && codedValue!=manualIncrement && codedValue!=manualDecrement && codedValue != manualOpen
+    && codedValue!= manualClose && codedValue != longPress){
+      lcd.clear();//clear to display invalid key
+      lcd.setCursor(0,0);
+      lcd.print("INVALID KEY!!");
+      lcd.setCursor(0,1);
+      lcd.print("SELECT MODE");
+      delay(100);
+      decodeRemote();
+      if(codedValue== codedValueAuto || codedValue== codedValueManual || codedValue!=0 ){
+        break;
+      }
+    }
+  delay(100);
+}
+  
+
